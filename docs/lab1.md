@@ -139,27 +139,29 @@
 
 ```mermaid
 graph TD
-    User[Пользователь] -->|Вводит параметры транзакции\nили загружает CSV-файл| Frontend
-    Frontend[Frontend\nReact + TypeScript] -->|HTTP REST| Nginx
-    Nginx[Nginx\nReverse Proxy :80] -->|proxy /api| Backend
-    Backend[Backend\nFastAPI :8000] -->|POST /predict| MLService
-    MLService[ML Service\nFastAPI :8001] -->|fraud_probability + is_fraud| Backend
+    User[Пользователь\nБраузер] -->|GET / — загрузка страницы| Nginx
+    Nginx[Nginx :80\nСтатика + Reverse Proxy] -->|скомпилированный JS / HTML / CSS| User
+    User -->|POST /api/predict\nREST-запрос из браузера| Nginx
+    Nginx -->|proxy /api| Backend[Backend\nFastAPI :8000]
+    Backend -->|POST /predict| MLService[ML Service\nFastAPI :8001]
+    MLService -->|fraud_probability + is_fraud| Backend
     Backend -->|сохраняет результат| DB[(PostgreSQL\nБаза данных)]
     Backend -->|JSON ответ| Nginx
-    Nginx -->|HTTP ответ| Frontend
-    Frontend -->|Отображает результат| User
+    Nginx -->|HTTP ответ| User
 ```
 
 ### 5.2 Описание основных потоков данных
 
 **а) Взаимодействие пользователя с системой:**
-1. Пользователь открывает веб-интерфейс
-2. **Сценарий 1 — одиночная транзакция:** вводит параметры вручную → Frontend отправляет JSON в Backend → Backend проксирует запрос в ML Service → ML Service возвращает `fraud_probability` + `is_fraud` → Backend сохраняет результат в БД → Frontend отображает результат
-3. **Сценарий 2 — CSV файл:** загружает CSV-файл → Backend парсит CSV построчно и для каждой строки вызывает ML Service → результаты сохраняются в БД → Frontend отображает таблицу результатов
+1. Пользователь открывает браузер и переходит на адрес сервиса (`http://<host>/`).
+2. **Nginx** отдаёт браузеру скомпилированный статический бандл React (HTML + JS + CSS) — отдельного frontend-сервера нет.
+3. Браузер исполняет JS-код и отображает интерфейс.
+4. **Сценарий 1 — одиночная транзакция:** пользователь вводит параметры вручную → браузерный JS отправляет `POST /api/predict` на Nginx → Nginx проксирует в Backend → Backend вызывает ML Service → ML Service возвращает `fraud_probability` + `is_fraud` → Backend сохраняет результат в БД и возвращает JSON → Nginx передаёт ответ браузеру → интерфейс отображает результат.
+5. **Сценарий 2 — CSV файл:** пользователь загружает CSV-файл → браузерный JS отправляет `POST /api/predict/batch` на Nginx → Nginx проксирует в Backend → Backend парсит CSV построчно и для каждой строки вызывает ML Service → результаты сохраняются в БД → Backend возвращает массив результатов → интерфейс отображает таблицу.
 
 **б) Откуда поступают данные для обучения / инференса:**
 - **Обучение:** датасет IEEE-CIS загружается локально, модель обучается offline-скриптом и сохраняется как `.pkl` файл, который монтируется в контейнер ML Service
-- **Инференс:** данные поступают от пользователя через Frontend → Backend → ML Service; модель загружается один раз при старте контейнера
+- **Инференс:** данные поступают от пользователя через браузер → Nginx → Backend → ML Service; модель загружается один раз при старте контейнера
 
 **в) Куда сохраняются результаты:**
 - Каждый запрос на предсказание сохраняется в PostgreSQL: входные данные + `fraud_probability` + `is_fraud` + `timestamp`
