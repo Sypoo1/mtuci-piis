@@ -130,23 +130,25 @@
 
 ```mermaid
 graph TD
-    User[Пользователь] -->|Вводит параметры транзакции\nили загружает CSV-файл| Frontend
-    Frontend[Frontend\nReact + TypeScript] -->|HTTP REST| Nginx
-    Nginx[Nginx\nReverse Proxy :80] -->|proxy /api| Backend
-    Backend[Backend\nFastAPI :8000] -->|POST /predict\nпо одной транзакции| MLService
-    MLService[ML Service\nFastAPI :8001] -->|fraud_probability + is_fraud| Backend
+    User[Пользователь\nБраузер] -->|GET / — загрузка страницы| Nginx
+    Nginx[Nginx :80\nСтатика + Reverse Proxy] -->|отдаёт скомпилированный\nJS / HTML / CSS| User
+    User -->|POST /api/predict\nREST-запрос из браузера| Nginx
+    Nginx -->|proxy /api → | Backend[Backend\nFastAPI :8000]
+    Backend -->|POST /predict\nпо одной транзакции| MLService[ML Service\nFastAPI :8001]
+    MLService -->|fraud_probability + is_fraud| Backend
     Backend -->|INSERT результат| DB[(PostgreSQL :5432\nБаза данных)]
     Backend -->|JSON ответ| Nginx
-    Nginx -->|HTTP ответ| Frontend
-    Frontend -->|Отображает результат| User
+    Nginx -->|HTTP ответ| User
 ```
 
 ### 5.2 Описание основных потоков данных
 
 **а) Взаимодействие пользователя с системой:**
-1. Пользователь открывает веб-интерфейс (Frontend)
-2. **Сценарий 1 — одиночная транзакция:** вводит параметры вручную → Frontend отправляет JSON в Backend → Backend валидирует данные и проксирует запрос в ML Service → ML Service возвращает `fraud_probability` + `is_fraud` → Backend сохраняет результат в БД → Frontend отображает результат
-3. **Сценарий 2 — CSV файл:** загружает CSV-файл → Frontend отправляет файл в Backend → Backend парсит CSV построчно и для каждой строки последовательно вызывает ML Service (`POST /predict`) → результаты накапливаются и сохраняются в БД → Backend возвращает массив результатов → Frontend отображает таблицу
+1. Пользователь открывает браузер и переходит на адрес сервиса (`http://<host>/`).
+2. **Nginx** отдаёт браузеру скомпилированный статический бандл React (HTML + JS + CSS) — никакого отдельного frontend-сервера нет.
+3. Браузер исполняет JS-код и отображает интерфейс.
+4. **Сценарий 1 — одиночная транзакция:** пользователь вводит параметры вручную → браузерный JS отправляет `POST /api/predict` на Nginx → Nginx проксирует запрос в Backend → Backend валидирует данные и вызывает ML Service → ML Service возвращает `fraud_probability` + `is_fraud` → Backend сохраняет результат в БД и возвращает JSON → Nginx передаёт ответ браузеру → интерфейс отображает результат.
+5. **Сценарий 2 — CSV файл:** пользователь загружает CSV-файл → браузерный JS отправляет `POST /api/predict/batch` (multipart/form-data) на Nginx → Nginx проксирует в Backend → Backend парсит CSV построчно и для каждой строки последовательно вызывает ML Service (`POST /predict`) → результаты накапливаются и сохраняются в БД → Backend возвращает массив результатов → Nginx передаёт ответ браузеру → интерфейс отображает таблицу.
 
 > **Архитектурное решение для CSV:** Backend обрабатывает каждую строку CSV как отдельный real-time запрос к ML Service. Это исключает проблемы с памятью и таймаутами, сохраняет единый эндпоинт ML Service и обеспечивает одинаковое поведение для обоих сценариев.
 
@@ -166,8 +168,8 @@ graph TD
 
 | Модуль | Технологии | Ответственность |
 |---|---|---|
-| **Frontend** | React, TypeScript | Пользовательский интерфейс: форма ввода транзакции, загрузка CSV, отображение результатов |
-| **Nginx** | Nginx | Reverse proxy, единая точка входа, маршрутизация: `/api` → Backend, `/` → Frontend |
+| **Frontend** | React, TypeScript | Пользовательский интерфейс (форма ввода транзакции, загрузка CSV, отображение результатов). Компилируется в статический бандл (HTML + JS + CSS) и **запускается в браузере пользователя** — отдельного frontend-контейнера нет |
+| **Nginx** | Nginx | Единая точка входа (:80). **Раздаёт скомпилированный статический бандл** React по маршруту `/`. Проксирует запросы `/api/...` → Backend. Отдельный frontend-сервер не нужен |
 | **Backend API** | Python, FastAPI | Валидация входных данных, бизнес-логика, парсинг CSV (построчно), последовательное проксирование каждой транзакции в ML Service, запись результатов в БД |
 | **ML Service** | Python, FastAPI, scikit-learn | Загрузка модели при старте контейнера (один раз, хранится в памяти). Единый эндпоинт `POST /predict` — принимает одну транзакцию, возвращает `fraud_probability` + `is_fraud`. Одинаково обслуживает оба сценария (ручной ввод и CSV). |
 | **Database** | PostgreSQL | Хранение истории транзакций, результатов предсказаний и аудиторских логов |
@@ -176,21 +178,23 @@ graph TD
 
 ```mermaid
 graph LR
-    A[Frontend\nReact :3000] -->|HTTP запрос| B[Nginx\n:80]
+    A[Браузер\nпользователя] -->|GET / — загрузка страницы| B[Nginx :80]
+    B -->|статический бандл\nHTML + JS + CSS| A
+    A -->|POST /api/predict\nREST из браузера| B
     B -->|proxy /api| C[Backend\nFastAPI :8000]
-    B -->|HTTP ответ| A
     C -->|POST /predict JSON| D[ML Service\nFastAPI :8001]
     D -->|JSON ответ| C
     C -->|запись результата| F[(PostgreSQL\n:5432)]
     C -->|JSON ответ| B
+    B -->|HTTP ответ| A
 ```
 
 ### 6.3 Протоколы взаимодействия
 
 | Взаимодействие | Протокол | Формат данных |
 |---|---|---|
-| Пользователь → Frontend | HTTP | HTML/CSS/JS при загрузке страницы |
-| Frontend → Nginx → Backend | HTTP REST | JSON (одиночная транзакция) / multipart/form-data (CSV загрузка) |
+| Браузер → Nginx (загрузка страницы) | HTTP GET | Nginx отдаёт скомпилированный статический бандл: HTML / CSS / JS |
+| Браузер → Nginx → Backend (API-запросы) | HTTP REST | JSON (одиночная транзакция) / multipart/form-data (CSV загрузка); маршрут `/api/...` |
 | Backend → ML Service | HTTP REST | JSON (параметры одной транзакции) |
 | ML Service → Backend | HTTP REST | JSON (`fraud_probability`, `is_fraud`) |
 | Backend → PostgreSQL | PostgreSQL Wire Protocol (TCP) | бинарный протокол через драйвер psycopg2 |
@@ -262,12 +266,18 @@ graph LR
 
 **Выбрано:** Nginx
 
-**Почему Nginx:**
-- Высокая производительность при обработке статики и проксировании
-- Единая точка входа для всех сервисов
-- Простая конфигурация для reverse proxy
+**Роль в архитектуре:**
+Nginx выполняет **две функции**:
+1. **Раздача статики** — при запросе `/` (и любого другого пути, не начинающегося с `/api`) Nginx отдаёт браузеру скомпилированный React-бандл (`index.html` + JS + CSS). Отдельный frontend-контейнер не нужен.
+2. **Reverse proxy** — запросы вида `/api/...` проксируются во внутренний Backend-контейнер (FastAPI :8000). Браузер всегда обращается только к Nginx; адрес Backend скрыт от клиента.
 
-**Почему не Apache:** Ниже производительность при высокой нагрузке; более сложная конфигурация для reverse proxy.
+**Почему Nginx:**
+- Высокая производительность при раздаче статических файлов (event-driven архитектура)
+- Единая точка входа: один порт (:80) для статики и API
+- Простая конфигурация `try_files` для SPA + `proxy_pass` для API
+- Нативная поддержка gzip-сжатия статики, кэширования, SSL-терминации
+
+**Почему не Apache:** Ниже производительность при высокой нагрузке; более сложная конфигурация для reverse proxy и SPA-маршрутизации.
 
 ### 7.6 Контейнеризация: Docker + docker-compose
 
