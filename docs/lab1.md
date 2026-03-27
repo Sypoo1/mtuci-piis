@@ -176,23 +176,25 @@ graph TD
 
 ```mermaid
 graph LR
-    A[Frontend\nReact :3000] -->|HTTP REST| B[Nginx\n:80]
+    A[Frontend\nReact :3000] -->|HTTP запрос| B[Nginx\n:80]
     B -->|proxy /api| C[Backend\nFastAPI :8000]
+    B -->|HTTP ответ| A
     C -->|POST /predict JSON| D[ML Service\nFastAPI :8001]
-    E[(model.pkl)] -->|загружается при старте| D
-    C -->|SQL INSERT/SELECT| F[(PostgreSQL\n:5432)]
+    D -->|JSON ответ| C
+    C -->|запись результата| F[(PostgreSQL\n:5432)]
+    C -->|JSON ответ| B
 ```
 
 ### 6.3 Протоколы взаимодействия
 
 | Взаимодействие | Протокол | Формат данных |
 |---|---|---|
-| Пользователь → Frontend | HTTP/HTTPS | HTML/JS |
-| Frontend → Nginx | HTTP REST | JSON |
-| Nginx → Backend | HTTP REST | JSON |
-| Backend → ML Service | HTTP REST | JSON |
-| Backend → PostgreSQL | SQL (TCP) | SQL-запросы |
-| docker-compose → все сервисы | Docker network | — |
+| Пользователь → Frontend | HTTP | HTML/CSS/JS при загрузке страницы |
+| Frontend → Nginx → Backend | HTTP REST | JSON (одиночная транзакция) / multipart/form-data (CSV загрузка) |
+| Backend → ML Service | HTTP REST | JSON (параметры одной транзакции) |
+| ML Service → Backend | HTTP REST | JSON (`fraud_probability`, `is_fraud`) |
+| Backend → PostgreSQL | PostgreSQL Wire Protocol (TCP) | бинарный протокол через драйвер psycopg2 |
+| Между контейнерами | Docker internal network | — |
 
 ---
 
