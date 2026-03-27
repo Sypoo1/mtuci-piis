@@ -133,7 +133,7 @@ graph TD
     User[Пользователь\nБраузер] -->|GET / — загрузка страницы| Nginx
     Nginx[Nginx :80\nСтатика + Reverse Proxy] -->|отдаёт скомпилированный\nJS / HTML / CSS| User
     User -->|POST /api/predict\nREST-запрос из браузера| Nginx
-    Nginx -->|proxy /api → | Backend[Backend\nFastAPI :8000]
+    Nginx -->|proxy /api| Backend[Backend\nFastAPI :8000]
     Backend -->|POST /predict\nпо одной транзакции| MLService[ML Service\nFastAPI :8001]
     MLService -->|fraud_probability + is_fraud| Backend
     Backend -->|INSERT результат| DB[(PostgreSQL :5432\nБаза данных)]
@@ -169,7 +169,7 @@ graph TD
 | Модуль | Технологии | Ответственность |
 |---|---|---|
 | **Frontend** | React, TypeScript | Пользовательский интерфейс (форма ввода транзакции, загрузка CSV, отображение результатов). Компилируется в статический бандл (HTML + JS + CSS) и **запускается в браузере пользователя** — отдельного frontend-контейнера нет |
-| **Nginx** | Nginx | Единая точка входа (:80). **Раздаёт скомпилированный статический бандл** React по маршруту `/`. Проксирует запросы `/api/...` → Backend. Отдельный frontend-сервер не нужен |
+| **Nginx** | Nginx | Единая точка входа (:80). **Раздаёт скомпилированный статический бандл** React по маршруту `/`. Проксирует запросы `/api/...` → Backend |
 | **Backend API** | Python, FastAPI | Валидация входных данных, бизнес-логика, парсинг CSV (построчно), последовательное проксирование каждой транзакции в ML Service, запись результатов в БД |
 | **ML Service** | Python, FastAPI, scikit-learn | Загрузка модели при старте контейнера (один раз, хранится в памяти). Единый эндпоинт `POST /predict` — принимает одну транзакцию, возвращает `fraud_probability` + `is_fraud`. Одинаково обслуживает оба сценария (ручной ввод и CSV). |
 | **Database** | PostgreSQL | Хранение истории транзакций, результатов предсказаний и аудиторских логов |
@@ -262,7 +262,7 @@ graph LR
 
 **Почему не SQLite:** Не подходит для production-окружения, нет поддержки конкурентных запросов.
 
-### 7.5 Reverse Proxy: Nginx
+### 7.5 Nginx: Static Files + Reverse Proxy
 
 **Выбрано:** Nginx
 
