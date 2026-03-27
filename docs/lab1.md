@@ -130,15 +130,14 @@
 
 ```mermaid
 graph TD
-    User[Пользователь] -->|Вводит параметры транзакции / загружает CSV| Frontend
-    Frontend[Frontend\nReact + TypeScript] -->|REST API запросы| Nginx
-    Nginx[Nginx\nReverse Proxy] -->|Проксирует запросы| Backend
-    Backend[Backend\nFastAPI] -->|REST API запрос на инференс| MLService
-    MLService[ML Service\nFastAPI + scikit-learn] -->|Загружает модель| MLModel[(Обученная модель\n.pkl файл)]
-    MLService -->|Возвращает вероятность фрода| Backend
-    Backend -->|Сохраняет результат| DB[(PostgreSQL\nБаза данных)]
-    Backend -->|Возвращает решение| Nginx
-    Nginx -->|Передаёт ответ| Frontend
+    User[Пользователь] -->|Вводит параметры транзакции\nили загружает CSV-файл| Frontend
+    Frontend[Frontend\nReact + TypeScript] -->|HTTP REST| Nginx
+    Nginx[Nginx\nReverse Proxy :80] -->|proxy /api| Backend
+    Backend[Backend\nFastAPI :8000] -->|POST /predict\nпо одной транзакции| MLService
+    MLService[ML Service\nFastAPI :8001] -->|fraud_probability + is_fraud| Backend
+    Backend -->|INSERT результат| DB[(PostgreSQL :5432\nБаза данных)]
+    Backend -->|JSON ответ| Nginx
+    Nginx -->|HTTP ответ| Frontend
     Frontend -->|Отображает результат| User
 ```
 
@@ -146,17 +145,17 @@ graph TD
 
 **а) Взаимодействие пользователя с системой:**
 1. Пользователь открывает веб-интерфейс (Frontend)
-2. Вводит параметры транзакции вручную или загружает CSV-файл
-3. Frontend отправляет данные в Backend через REST API (через Nginx)
-4. Backend возвращает результат (вероятность фрода + решение)
-5. Frontend отображает результат пользователю
+2. **Сценарий 1 — одиночная транзакция:** вводит параметры вручную → Frontend отправляет JSON в Backend → Backend валидирует данные и проксирует запрос в ML Service → ML Service возвращает `fraud_probability` + `is_fraud` → Backend сохраняет результат в БД → Frontend отображает результат
+3. **Сценарий 2 — CSV файл:** загружает CSV-файл → Frontend отправляет файл в Backend → Backend парсит CSV построчно и для каждой строки последовательно вызывает ML Service (`POST /predict`) → результаты накапливаются и сохраняются в БД → Backend возвращает массив результатов → Frontend отображает таблицу
+
+> **Архитектурное решение для CSV:** Backend обрабатывает каждую строку CSV как отдельный real-time запрос к ML Service. Это исключает проблемы с памятью и таймаутами, сохраняет единый эндпоинт ML Service и обеспечивает одинаковое поведение для обоих сценариев.
 
 **б) Откуда поступают данные для обучения / инференса:**
-- **Обучение:** датасет Kaggle загружается локально, модель обучается скриптом и сохраняется как `.pkl` файл
-- **Инференс:** данные поступают от пользователя через Frontend → Backend → ML Service в реальном времени
+- **Обучение:** датасет Kaggle загружается локально, модель обучается offline-скриптом и сохраняется как `.pkl` файл; файл монтируется в контейнер ML Service
+- **Инференс:** ML Service загружает модель из `.pkl` **один раз при старте контейнера** и держит её в памяти; каждый запрос использует уже загруженную модель
 
 **в) Куда сохраняются результаты:**
-- Каждый запрос на предсказание сохраняется в PostgreSQL (входные данные + результат + timestamp)
+- Каждый запрос на предсказание сохраняется в PostgreSQL: входные данные + `fraud_probability` + `is_fraud` + `timestamp`
 - История предсказаний доступна через Backend API
 
 ---
@@ -168,22 +167,20 @@ graph TD
 | Модуль | Технологии | Ответственность |
 |---|---|---|
 | **Frontend** | React, TypeScript | Пользовательский интерфейс: форма ввода транзакции, загрузка CSV, отображение результатов |
-| **Nginx** | Nginx | Reverse proxy, единая точка входа, маршрутизация запросов к Backend |
-| **Backend API** | Python, FastAPI | Валидация входных данных, бизнес-логика, проксирование к ML Service, запись в БД |
-| **ML Service** | Python, FastAPI, scikit-learn | Загрузка модели, предобработка признаков, инференс, возврат вероятности фрода |
-| **Database** | PostgreSQL | Хранение истории транзакций и результатов предсказаний |
-| **Containerization** | Docker, docker-compose | Изоляция и оркестрация всех сервисов |
+| **Nginx** | Nginx | Reverse proxy, единая точка входа, маршрутизация: `/api` → Backend, `/` → Frontend |
+| **Backend API** | Python, FastAPI | Валидация входных данных, бизнес-логика, парсинг CSV (построчно), последовательное проксирование каждой транзакции в ML Service, запись результатов в БД |
+| **ML Service** | Python, FastAPI, scikit-learn | Загрузка модели при старте контейнера (один раз, хранится в памяти). Единый эндпоинт `POST /predict` — принимает одну транзакцию, возвращает `fraud_probability` + `is_fraud`. Одинаково обслуживает оба сценария (ручной ввод и CSV). |
+| **Database** | PostgreSQL | Хранение истории транзакций, результатов предсказаний и аудиторских логов |
 
 ### 6.2 Диаграмма взаимодействия модулей
 
 ```mermaid
 graph LR
-    A[Frontend\nReact:3000] -->|HTTP REST| B[Nginx\n:80]
-    B -->|HTTP proxy /api| C[Backend\nFastAPI:8000]
-    B -->|HTTP proxy /| A
-    C -->|HTTP REST /predict| D[ML Service\nFastAPI:8001]
-    D -->|load| E[(model.pkl)]
-    C -->|SQL| F[(PostgreSQL\n:5432)]
+    A[Frontend\nReact :3000] -->|HTTP REST| B[Nginx\n:80]
+    B -->|proxy /api| C[Backend\nFastAPI :8000]
+    C -->|POST /predict JSON| D[ML Service\nFastAPI :8001]
+    E[(model.pkl)] -->|загружается при старте| D
+    C -->|SQL INSERT/SELECT| F[(PostgreSQL\n:5432)]
 ```
 
 ### 6.3 Протоколы взаимодействия
