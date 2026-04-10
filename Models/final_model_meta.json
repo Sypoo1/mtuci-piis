@@ -1,0 +1,26 @@
+{
+  "model_name": "GradientBoosting_100trees",
+  "feature_names": [
+    "TransactionAmt",
+    "ProductCD",
+    "card1",
+    "card4",
+    "card6",
+    "addr1",
+    "P_emaildomain",
+    "DeviceType"
+  ],
+  "val_metrics": {
+    "pr_auc": 0.1855,
+    "f1": 0.0409,
+    "recall": 0.0211
+  },
+  "test_metrics": {
+    "precision": 0.7619,
+    "recall": 0.0217,
+    "f1": 0.0422,
+    "pr_auc": 0.2131,
+    "roc_auc": 0.7876
+  },
+  "saved_at": "2026-04-10T16:01:06"
+}
