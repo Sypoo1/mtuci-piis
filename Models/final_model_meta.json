@@ -9,20 +9,19 @@
     "addr1",
     "P_emaildomain",
     "DeviceType",
-    "C1",
-    "D1_norm"
+    "C1"
   ],
   "val_metrics": {
-    "pr_auc": 0.3599,
-    "f1": 0.3505,
-    "recall": 0.2318
+    "pr_auc": 0.3382,
+    "f1": 0.3227,
+    "recall": 0.2085
   },
   "test_metrics": {
-    "precision": 0.3828,
-    "recall": 0.3285,
-    "f1": 0.3536,
-    "pr_auc": 0.3518,
-    "roc_auc": 0.8245
+    "precision": 0.4366,
+    "recall": 0.3597,
+    "f1": 0.3944,
+    "pr_auc": 0.3573,
+    "roc_auc": 0.8128
   },
-  "saved_at": "2026-04-10T17:41:34"
+  "saved_at": "2026-04-11T00:27:44"
 }
