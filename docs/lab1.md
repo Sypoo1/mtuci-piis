@@ -192,7 +192,6 @@ graph TD
 - Каждый новый результат предсказания сохраняется в PostgreSQL: входные данные + `fraud_probability` + `is_fraud` + `timestamp`
 - Результат также кэшируется в Redis (TTL = 1 час) — повторный запрос с теми же параметрами возвращается мгновенно без обращения к ML Service
 - При кэш-промахе Backend сначала ищет результат в PostgreSQL (кэш мог протухнуть, но запись в БД постоянна) — если находит, прогревает Redis и возвращает результат без вызова ML Service
-- История предсказаний (`GET /api/history`) читается из PostgreSQL — Redis здесь не используется, так как история динамически меняется
 
 ---
 
@@ -207,27 +206,26 @@ graph TD
 | **Backend API** | Python, FastAPI | Валидация входных данных, парсинг CSV, проксирование запросов в ML Service, запись результатов в БД и кэше |
 | **ML Service** | Python, FastAPI, scikit-learn | Загрузка модели при старте (один раз), инференс одной транзакции, возврат `fraud_probability` + `is_fraud` |
 | **Cache** | Redis | Кэширование результатов предсказаний (TTL = 1 час); при кэш-промахе Backend ищет результат в PostgreSQL и прогревает кэш — ML Service вызывается только при отсутствии данных и в БД |
-| **Database** | PostgreSQL | Постоянное хранилище истории транзакций и результатов; источник для прогрева кэша Redis; используется для чтения истории (`GET /api/history`) |
+| **Database** | PostgreSQL | Постоянное хранилище истории транзакций и результатов; источник для прогрева кэша Redis |
 
 ### 6.2 Диаграмма взаимодействия модулей
 
 ```mermaid
 graph LR
-    A[Браузер\nпользователя] <-->|HTTP REST| B[Nginx :80]
-    B <-->|HTTP REST\nproxy /api| C[Backend\nFastAPI :8000]
-    C <-->|HTTP REST\nJSON| D[ML Service\nFastAPI :8001]
-    C <-->|Redis Protocol\nTCP :6379| E[(Redis\nКэш)]
-    C <-->|PostgreSQL Wire\nTCP :5432| F[(PostgreSQL\nБД)]
-    E <-.->|прогрев кэша\nиз БД| F
+    A[Браузер\nпользователя] <-->|HTTP| B[Nginx :80]
+    B <-->|HTTP| C[Backend\nFastAPI :8000]
+    C <-->|HTTP| D[ML Service\nFastAPI :8001]
+    C <-->|Redis Protocol| E[(Redis\nКэш)]
+    C <-->|PostgreSQL Wire\nTCP| F[(PostgreSQL\nБД)]
 ```
 
 ### 6.3 Протоколы взаимодействия
 
 | Взаимодействие | Протокол | Формат данных |
 |---|---|---|
-| Браузер ↔ Nginx (загрузка страницы) | HTTP GET | HTML / CSS / JS |
-| Браузер ↔ Nginx ↔ Backend (API) | HTTP REST | JSON (одиночная транзакция) / multipart/form-data (CSV) |
-| Backend ↔ ML Service | HTTP REST | JSON (параметры транзакции / `fraud_probability` + `is_fraud`) |
+| Браузер ↔ Nginx (загрузка страницы) | HTTP | HTML / CSS / JS |
+| Браузер ↔ Nginx ↔ Backend (API) | HTTP | JSON (одиночная транзакция) / multipart/form-data (CSV) |
+| Backend ↔ ML Service | HTTP | JSON (параметры транзакции / `fraud_probability` + `is_fraud`) |
 | Backend ↔ Redis | Redis Protocol (TCP :6379) | бинарный протокол через redis-py |
 | Backend ↔ PostgreSQL | PostgreSQL Wire Protocol (TCP :5432) | бинарный протокол через psycopg2 |
 | Между контейнерами | Docker internal network | — |
