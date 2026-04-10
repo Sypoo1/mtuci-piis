@@ -226,8 +226,8 @@ graph LR
 | Браузер ↔ Nginx (загрузка страницы) | HTTP | HTML / CSS / JS |
 | Браузер ↔ Nginx ↔ Backend (API) | HTTP | JSON (одиночная транзакция) / multipart/form-data (CSV) |
 | Backend ↔ ML Service | HTTP | JSON (параметры транзакции / `fraud_probability` + `is_fraud`) |
-| Backend ↔ Redis | Redis Protocol (TCP :6379) | бинарный протокол через redis-py |
-| Backend ↔ PostgreSQL | PostgreSQL Wire Protocol (TCP :5432) | бинарный протокол через psycopg2 |
+| Backend ↔ Redis | Redis Protocol | бинарный протокол через redis-py |
+| Backend ↔ PostgreSQL | PostgreSQL Wire Protocol | бинарный протокол через psycopg2 |
 | Между контейнерами | Docker internal network | — |
 
 ---
