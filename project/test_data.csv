@@ -1,0 +1,6 @@
+TransactionAmt,ProductCD,card1,card4,card6,addr1,P_emaildomain,DeviceType,C1
+49.0,W,4497,visa,debit,315,gmail.com,desktop,1.0
+1200.0,C,9999,mastercard,credit,,,,10.0
+75.0,H,3429,visa,debit,299,yahoo.com,mobile,2.0
+500.0,C,1111,mastercard,credit,100,hotmail.com,mobile,8.0
+25.0,W,3000,visa,debit,200,gmail.com,desktop,1.0
