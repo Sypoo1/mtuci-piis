@@ -340,5 +340,3 @@ graph LR
 8. [Nginx Documentation](https://nginx.org/en/docs/) — документация по Nginx
 
 ---
-
-*Отчёт подготовлен в соответствии с требованиями лабораторной работы №1*
