@@ -154,14 +154,23 @@
 graph TD
     User[Пользователь\nБраузер] -->|GET / — загрузка страницы| Nginx
     Nginx[Nginx :80\nСтатика + Reverse Proxy] -->|скомпилированный JS / HTML / CSS| User
-    User -->|POST /api/predict\nREST-запрос из браузера| Nginx
+    User -->|POST /api/predict| Nginx
+    User -->|GET /api/history| Nginx
     Nginx -->|proxy /api| Backend[Backend\nFastAPI :8000]
-    Backend -->|проверка кэша| Cache[(Redis\nКэш :6379)]
-    Cache -->|кэш-хит: готовый результат| Backend
-    Backend -->|кэш-мисс: POST /predict| MLService[ML Service\nFastAPI :8001]
+
+    Backend -->|1. проверка кэша| Cache[(Redis\nКэш :6379)]
+    Cache -->|кэш-хит: результат| Backend
+
+    Backend -->|2. кэш-мисс:\nпоиск в БД| DB[(PostgreSQL\nБаза данных)]
+    DB -->|бд-хит: результат +\nпрогрев кэша| Backend
+    Backend -->|прогрев кэша| Cache
+
+    Backend -->|3. бд-мисс:\nPOST /predict| MLService[ML Service\nFastAPI :8001]
     MLService -->|fraud_probability + is_fraud| Backend
+    Backend -->|сохраняет результат| DB
     Backend -->|сохраняет в кэш| Cache
-    Backend -->|сохраняет результат| DB[(PostgreSQL\nБаза данных)]
+
+    DB -->|история транзакций| Backend
     Backend -->|JSON ответ| Nginx
     Nginx -->|HTTP ответ| User
 ```
@@ -179,9 +188,11 @@ graph TD
 - **Обучение:** датасет IEEE-CIS загружается локально, модель обучается offline-скриптом и сохраняется как `.pkl` файл, который монтируется в контейнер ML Service
 - **Инференс:** данные поступают от пользователя через браузер → Nginx → Backend → ML Service; модель загружается один раз при старте контейнера
 
-**в) Куда сохраняются результаты:**
-- Каждый запрос на предсказание сохраняется в PostgreSQL: входные данные + `fraud_probability` + `is_fraud` + `timestamp`
-- История предсказаний доступна через Backend API
+**в) Куда сохраняются результаты и как работает кэш:**
+- Каждый новый результат предсказания сохраняется в PostgreSQL: входные данные + `fraud_probability` + `is_fraud` + `timestamp`
+- Результат также кэшируется в Redis (TTL = 1 час) — повторный запрос с теми же параметрами возвращается мгновенно без обращения к ML Service
+- При кэш-промахе Backend сначала ищет результат в PostgreSQL (кэш мог протухнуть, но запись в БД постоянна) — если находит, прогревает Redis и возвращает результат без вызова ML Service
+- История предсказаний (`GET /api/history`) читается из PostgreSQL — Redis здесь не используется, так как история динамически меняется
 
 ---
 
@@ -195,8 +206,8 @@ graph TD
 | **Nginx** | Nginx | Единая точка входа (:80), раздача статики Frontend, проксирование `/api/...` → Backend |
 | **Backend API** | Python, FastAPI | Валидация входных данных, парсинг CSV, проксирование запросов в ML Service, запись результатов в БД и кэше |
 | **ML Service** | Python, FastAPI, scikit-learn | Загрузка модели при старте (один раз), инференс одной транзакции, возврат `fraud_probability` + `is_fraud` |
-| **Cache** | Redis | Кэширование результатов предсказаний для повторяющихся транзакций; снижение нагрузки на ML Service |
-| **Database** | PostgreSQL | Хранение истории транзакций и результатов предсказаний |
+| **Cache** | Redis | Кэширование результатов предсказаний (TTL = 1 час); при кэш-промахе Backend ищет результат в PostgreSQL и прогревает кэш — ML Service вызывается только при отсутствии данных и в БД |
+| **Database** | PostgreSQL | Постоянное хранилище истории транзакций и результатов; источник для прогрева кэша Redis; используется для чтения истории (`GET /api/history`) |
 
 ### 6.2 Диаграмма взаимодействия модулей
 
@@ -207,6 +218,7 @@ graph LR
     C <-->|HTTP REST\nJSON| D[ML Service\nFastAPI :8001]
     C <-->|Redis Protocol\nTCP :6379| E[(Redis\nКэш)]
     C <-->|PostgreSQL Wire\nTCP :5432| F[(PostgreSQL\nБД)]
+    E <-.->|прогрев кэша\nиз БД| F
 ```
 
 ### 6.3 Протоколы взаимодействия
