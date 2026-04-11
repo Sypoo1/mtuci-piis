@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: fraud_backend
+    static_configs:
+      - targets: ["nginx:80"]
+    metrics_path: /metrics
