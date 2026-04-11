@@ -1,129 +1,128 @@
-# Fraud Detector — Детектор банковского фрода
+# Fraud Detector
 
-ML-сервис для детектирования мошеннических банковских транзакций на основе модели GradientBoosting (PR-AUC 0.357, ROC-AUC 0.813 на тестовой выборке).
+Сервис автоматического детектирования мошеннических банковских транзакций на основе ML.
+Пользователь вводит параметры транзакции через веб-форму или загружает CSV — сервис возвращает вероятность фрода и бинарное решение.
 
-## Архитектура
-
-```
-Браузер → Nginx :80 → Backend (FastAPI :8000) → ML Service (FastAPI :8001)
-                                ↕                        ↕
-                           PostgreSQL              Redis (кэш)
-```
-
-| Компонент | Технология | Роль |
-|---|---|---|
-| **Nginx** | nginx:alpine | Единая точка входа, раздача статики, reverse proxy |
-| **Frontend** | React (CDN) | Веб-интерфейс: форма, CSV-загрузка, история |
-| **Backend** | FastAPI + Python | Валидация, кэш, БД, метрики, оркестрация |
-| **ML Service** | FastAPI + scikit-learn | Инференс модели GradientBoosting |
-| **PostgreSQL** | postgres:16 | Хранение истории предсказаний |
-| **Redis** | redis:7 | Кэш результатов (TTL 1 час) |
+Модель: GradientBoosting · PR-AUC **0.357** · ROC-AUC **0.813** · порог **0.1739**
 
 ## Требования
 
 - Docker ≥ 24
-- docker-compose ≥ 2.20 (или `docker compose` plugin)
+- docker-compose ≥ 2.20
 
-## Запуск
+## Установка и запуск
 
 ```bash
+git clone <repo>
 cd project
 docker-compose up --build
 ```
 
-Сервис будет доступен по адресу **http://localhost**.
+Весь стек поднимается одной командой. После старта:
+
+| Сервис | URL |
+|---|---|
+| Приложение | http://localhost |
+| Grafana (мониторинг) | http://localhost:3000 (admin / admin) |
 
 ## Использование
 
-### Через браузер
+### Через веб-интерфейс (http://localhost)
 
-Откройте http://localhost — веб-интерфейс с тремя вкладками:
-- **Одиночная транзакция** — заполните форму и нажмите «Проверить»
-- **CSV-файл** — загрузите [`project/test_data.csv`](project/test_data.csv) для пакетной проверки
-- **История** — последние 20 предсказаний из БД
+Интерфейс содержит три вкладки:
 
-### Через curl (одиночная транзакция)
+**Одиночная транзакция**
+1. Заполните поля формы: сумма, тип продукта, данные карты, устройство и т.д.
+2. Нажмите «Проверить» — результат появится под формой: ✅ Легитимная или 🚨 ФРОД с вероятностью
 
+**CSV-файл**
+1. Нажмите на область загрузки и выберите CSV-файл (пример: [`project/test_data.csv`](project/test_data.csv))
+2. Нажмите «Загрузить и проверить» — отобразится таблица с результатами по каждой строке
+
+**История**
+- Показывает последние 20 предсказаний из базы данных с временными метками
+
+### Через curl
+
+**Одиночная транзакция:**
 ```bash
 curl -X POST http://localhost/api/predict \
   -H "Content-Type: application/json" \
   -d '{
-    "TransactionAmt": 1200.0,
+    "TransactionAmt": 1200,
     "ProductCD": "C",
     "card1": 9999,
     "card4": "mastercard",
     "card6": "credit",
-    "addr1": null,
-    "P_emaildomain": null,
     "DeviceType": "mobile",
-    "C1": 10.0
+    "C1": 10
   }'
 ```
 
-Ответ:
-```json
-{"fraud_probability": 0.8231, "is_fraud": true, "threshold": 0.1739}
-```
-
-### Через curl (CSV-файл)
-
+**Пакетная обработка CSV:**
 ```bash
 curl -X POST http://localhost/api/predict/batch \
   -F "file=@project/test_data.csv"
 ```
 
-### История предсказаний
-
+**История предсказаний:**
 ```bash
-curl http://localhost/api/history?limit=10
+curl "http://localhost/api/history?limit=10"
+
 ```
 
-### Метрики Prometheus
-
+**Метрики Prometheus:**
 ```bash
 curl http://localhost/metrics
 ```
 
-Экспортируемые метрики:
-- `fraud_requests_total` — количество запросов по endpoint и статусу
-- `fraud_request_duration_seconds` — latency запросов
-- `fraud_detected_total` — количество обнаруженных фродов
-- `fraud_cache_hits_total` / `fraud_cache_misses_total` — попадания в кэш
+## Архитектура
+
+```
+Браузер → Nginx :80 → Backend :8000 → ML Service :8001
+                           ↕
+                    PostgreSQL + Redis
+```
+
+| Компонент | Стек | Роль |
+|---|---|---|
+| Frontend | React + TypeScript + Vite | Веб-интерфейс |
+| Backend | FastAPI + Python | Оркестрация, кэш, БД, метрики |
+| ML Service | FastAPI + scikit-learn | Инференс GradientBoosting |
+| PostgreSQL | postgres:16 | История предсказаний |
+| Redis | redis:7 | Кэш результатов (TTL 1 ч) |
+| Prometheus + Grafana | — | Мониторинг |
+
+Подробные диаграммы: [контекстная диаграмма](docs/lab1.md#шаг-5-проектирование-высокоуровневой-архитектуры-системы) · [диаграмма модулей](docs/lab1.md#шаг-6-выделение-модулей-и-протоколов-взаимодействия)
+
+## Подключение к БД напрямую
+
+| | Host | Port | User | Password | DB |
+|---|---|---|---|---|---|
+| PostgreSQL | localhost | 5432 | fraud | fraud | fraud |
+| Redis | localhost | 6379 | — | — | — |
 
 ## Структура проекта
 
 ```
 project/
-├── ml_service/       # ML Service: инференс модели
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── backend/          # Backend API: оркестратор
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/         # Frontend: React SPA
-│   ├── index.html
-│   └── Dockerfile
-├── nginx/            # Reverse proxy
-│   ├── nginx.conf
-│   └── Dockerfile
+├── ml_service/          # Инференс модели
+├── backend/             # API, кэш, БД, метрики
+├── frontend/            # React + TS (App.tsx)
+├── nginx/               # Reverse proxy
+├── grafana/             # Дашборд + datasource provisioning
+├── prometheus.yml       # Конфиг scrape
 ├── docker-compose.yml
-├── test_data.csv     # Тестовые данные
-└── task.txt
+└── test_data.csv        # Тестовые данные (5 транзакций)
 Models/
-├── final_model.pkl   # Обученная модель (GradientBoosting)
-└── final_model_meta.json
-docs/
-├── lab1.md           # Постановка задачи и архитектура
-├── lab2.md           # Предобработка данных
-├── lab3.md           # Разработка и оценка модели
-└── lab4.md           # Интеграция, мониторинг, контейнеризация
+└── final_model.pkl      # Обученная модель (GradientBoosting, joblib)
 ```
 
 ## Документация
 
-- [ЛР1 — Постановка задачи и архитектура](docs/lab1.md)
-- [ЛР2 — Предобработка данных](docs/lab2.md)
-- [ЛР3 — Разработка и оценка модели](docs/lab3.md)
-- [ЛР4 — Интеграция, мониторинг, контейнеризация](docs/lab4.md)
+| | |
+|---|---|
+| [ЛР1 — Постановка задачи и архитектура](docs/lab1.md) | Бизнес-задача, EDA, архитектурные диаграммы, выбор технологий |
+| [ЛР2 — Предобработка данных](docs/lab2.md) | Пайплайн предобработки, разбиение выборки |
+| [ЛР3 — Разработка и оценка модели](docs/lab3.md) | Эксперименты, финальная модель, метрики |
+| [ЛР4 — Интеграция, мониторинг, контейнеризация](docs/lab4.md) | Описание сервиса, мониторинг, Docker |
