@@ -1,3 +1,9 @@
+# Ссылка на репозиторий в GitFlic
+
+[**https://gitflic.mtuci.ru/project/r-f-shamsutdinov-edu-mtuci-ru/mtuci-piis**](https://gitflic.mtuci.ru/project/r-f-shamsutdinov-edu-mtuci-ru/mtuci-piis)
+
+
+
 # Fraud Detector
 
 Сервис автоматического детектирования мошеннических банковских транзакций на основе ML.
